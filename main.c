@@ -37,8 +37,23 @@
 #define TRIG_0		(GPIOA->BRR  = 1 << 1)
 #define TRIG_1		(GPIOA->BSRR = 1 << 1)
 
-#define LED0_0		(GPIOB->BRR  = 1 << 1)
-#define LED0_1		(GPIOB->BSRR = 1 << 1)
+#define LED0_0		(GPIOC->BRR  = 1 << 10)
+#define LED0_1		(GPIOC->BSRR = 1 << 10)
+#define LED1_0		(GPIOC->BRR  = 1 << 12)
+#define LED1_1		(GPIOC->BSRR = 1 << 12)
+#define LED2_0		(GPIOD->BRR  = 1 << 0)
+#define LED2_1		(GPIOD->BSRR = 1 << 0)
+#define LED3_0		(GPIOD->BRR  = 1 << 3)
+#define LED3_1		(GPIOD->BSRR = 1 << 3)
+
+#define SLAVE0_0	(GPIOC->BRR  = 1 << 2)
+#define SLAVE0_1 	(GPIOC->BSRR = 1 << 2)
+#define SLAVE1_0	(GPIOC->BRR  = 1 << 3)
+#define SLAVE1_1 	(GPIOC->BSRR = 1 << 3)
+
+#define SLAVE_CTRL	1
+
+#define LOCK_DELAY	5000
 
 /* USER CODE END PD */
 
@@ -77,11 +92,32 @@ int __io_putchar(int ch) {
 }
 
 volatile uint32_t echo_start = 0;
-volatile uint32_t echo_end   = 0;
-volatile uint8_t  echo_done  = 0;
+volatile uint32_t echo_end0   = 0;
+volatile uint32_t echo_end1   = 0;
+volatile uint32_t echo_end2   = 0;
+volatile uint32_t echo_end3   = 0;
+volatile uint8_t  echo_done0  = 0;
+volatile uint8_t  echo_done1  = 0;
+volatile uint8_t  echo_done2  = 0;
+volatile uint8_t  echo_done3  = 0;
 
 void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_PIN) {
 	if(GPIO_PIN == GPIO_PIN_4) {
+		__HAL_TIM_SET_COUNTER(&htim1, 0); // reinicia contagem
+		echo_start = 0;
+	}
+
+	if(GPIO_PIN == GPIO_PIN_1) {
+		__HAL_TIM_SET_COUNTER(&htim1, 0); // reinicia contagem
+		echo_start = 0;
+	}
+
+	if(GPIO_PIN == GPIO_PIN_11) {
+		__HAL_TIM_SET_COUNTER(&htim1, 0); // reinicia contagem
+		echo_start = 0;
+	}
+
+	if(GPIO_PIN == GPIO_PIN_12) {
 		__HAL_TIM_SET_COUNTER(&htim1, 0); // reinicia contagem
 		echo_start = 0;
 	}
@@ -89,8 +125,23 @@ void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_PIN) {
 
 void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_PIN) {
 	if(GPIO_PIN == GPIO_PIN_4) {
-		echo_end = __HAL_TIM_GET_COUNTER(&htim1);
-		echo_done = 1;
+		echo_end0 = __HAL_TIM_GET_COUNTER(&htim1);
+		echo_done0 = 1;
+	}
+
+	if(GPIO_PIN == GPIO_PIN_1) {
+		echo_end1 = __HAL_TIM_GET_COUNTER(&htim1);
+		echo_done1 = 1;
+	}
+
+	if(GPIO_PIN == GPIO_PIN_11) {
+		echo_end2 = __HAL_TIM_GET_COUNTER(&htim1);
+		echo_done2 = 1;
+	}
+
+	if(GPIO_PIN == GPIO_PIN_12) {
+		echo_end3 = __HAL_TIM_GET_COUNTER(&htim1);
+		echo_done3 = 1;
 	}
 }
 
@@ -120,6 +171,43 @@ void transmit_str(const char *str) {
 	while (*ptr) transmit_ch(ptr++);
 }
 
+void unlock_entrace(int slave_ctrl) {
+	while(slave_ctrl--) {
+		SLAVE0_1;
+		HAL_Delay(1);
+		SLAVE0_0;
+		HAL_Delay(19);
+	}
+}
+
+void lock_entrace(int slave_ctrl) {
+	while(slave_ctrl--) {
+		SLAVE0_1;
+		HAL_Delay(2);
+		SLAVE0_0;
+		HAL_Delay(18);
+	}
+}
+
+void unlock_exit(int slave_ctrl) {
+	while(slave_ctrl--) {
+		SLAVE1_1;
+		HAL_Delay(1);
+		delayus(500);
+		SLAVE1_0;
+		HAL_Delay(18);
+		delayus(500);
+	}
+}
+
+void lock_exit(int slave_ctrl) {
+	while(slave_ctrl--) {
+		SLAVE1_1;
+		HAL_Delay(2);
+		SLAVE1_0;
+		HAL_Delay(18);
+	}
+}
 
 /* USER CODE END 0 */
 
@@ -131,8 +219,8 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
 
-	uint32_t pulse;
-	float dist;
+	uint32_t pulse0, pulse1, pulse2, pulse3;
+	float dist0, dist1, dist2, dist3;
 
 	char nl = '\n';
 
@@ -167,28 +255,86 @@ int main(void)
   printf("\rInicia\n");
   transmit_ch(&nl);
 
+  lock_exit(SLAVE_CTRL);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  trigger_sensor();
-	  if(echo_done) {
-		  pulse = echo_end - echo_start; // pulse width em us
-	  	  dist = (pulse * 0.0343f)/2;
+	  lock_exit(SLAVE_CTRL);
+	  HAL_Delay(LOCK_DELAY/2);
+	  unlock_exit(SLAVE_CTRL);
+	  HAL_Delay(LOCK_DELAY/2);
 
-	  	  if (dist < 100.0f) {
-	  		  printf("\rDist = %05.2f cm\n", dist);
+	  continue;
+
+
+	  trigger_sensor();
+	  if(echo_done0) {
+		  pulse0 = echo_end0 - echo_start; // pulse width em us
+	  	  dist0 = (pulse0 * 0.0343f)/2;
+
+	  	  if (dist0 < 100.0f) {
+	  		  printf("\rDist0 = %05.2f cm\n", dist0);
 	  		  transmit_ch(&nl);
 	  	  }
 
-	  	  if (dist < 6.0f) LED0_0;
+	  	  if (dist0 < 6.0f) LED0_0;
 	  	  else LED0_1;
 
-	  	  echo_done = 0;
+	  	  echo_done0 = 0;
 	  }
+
+	  if(echo_done1) {
+		  pulse1 = echo_end1 - echo_start; // pulse width em us
+		  dist1 = (pulse1 * 0.0343f)/2;
+
+		  if (dist1 < 100.0f) {
+			  printf("\rDist1 = %05.2f cm\n", dist1);
+			  transmit_ch(&nl);
+		  }
+
+		  if (dist1 < 6.0f) LED1_0;
+		  else LED1_1;
+
+		  echo_done1 = 0;
+	  }
+
+	  if(echo_done2) {
+		  pulse2 = echo_end2 - echo_start; // pulse width em us
+		  dist2 = (pulse2 * 0.0343f)/2;
+
+		  if (dist2 < 100.0f) {
+			  printf("\rDist2 = %05.2f cm\n", dist2);
+			  transmit_ch(&nl);
+		  }
+
+		  if (dist2 < 6.0f) LED2_0;
+		  else LED2_1;
+
+		  echo_done2 = 0;
+	  }
+
+	  if(echo_done3) {
+		  pulse3 = echo_end3 - echo_start; // pulse width em us
+		  dist3 = (pulse3 * 0.0343f)/2;
+
+		  if (dist3 < 100.0f) {
+			  printf("\rDist3 = %05.2f cm\n", dist3);
+			  transmit_ch(&nl);
+		  }
+
+		  if (dist3 < 6.0f) LED3_0;
+		  else LED3_1;
+
+		  echo_done3 = 0;
+	  }
+
 	  HAL_Delay(100);
+
+
 
     /* USER CODE END WHILE */
 
@@ -346,12 +492,23 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_12|GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_10, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_0|GPIO_PIN_3, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : PC12 PC2 PC3 PC10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_12|GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_10;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PA1 */
   GPIO_InitStruct.Pin = GPIO_PIN_1;
@@ -366,14 +523,23 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PB1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  /*Configure GPIO pins : PB1 PB11 PB12 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_11|GPIO_PIN_12;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PD0 PD3 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_3;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_1_IRQn);
+
   HAL_NVIC_SetPriority(EXTI4_15_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI4_15_IRQn);
 
