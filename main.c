@@ -67,6 +67,8 @@
 
 #define READ_BTN	(GPIOC->IDR & (1 << 3))
 
+#define ENTRANCE_CARD_IN	(GPIOC->IDR & (1 << 1))
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -75,6 +77,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c2;
+
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim3;
 
@@ -90,6 +94,7 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_I2C2_Init(void);
 /* USER CODE BEGIN PFP */
 
 void udelay(void);
@@ -138,7 +143,7 @@ volatile uint8_t  echo_done1  = 0;
 volatile uint8_t  echo_done2  = 0;
 volatile uint8_t  echo_done3  = 0;
 
-volatile uint8_t ctrl_entrace = 0;
+volatile uint8_t ctrl_entrance = 0;
 volatile uint8_t ctrl_exit = 0;
 
 void trigger_sensor(){
@@ -164,20 +169,20 @@ void transmit_str(const char *str) {
 	while (*ptr) transmit_ch(ptr++);
 }
 
-TIM_OC_InitTypeDef sConfig_entrace = {0}, sConfig_exit = {0};
+TIM_OC_InitTypeDef sConfig_entrance = {0}, sConfig_exit = {0};
 
-void unlock_entrace() {
+void unlock_entrance() {
 	HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
-	sConfig_entrace.Pulse = 20 - 1; //TH = 8ms, TL = 2ms
-	HAL_TIM_PWM_ConfigChannel(&htim3, &sConfig_entrace, TIM_CHANNEL_1);
+	sConfig_entrance.Pulse = 20 - 1; //TH = 8ms, TL = 2ms
+	HAL_TIM_PWM_ConfigChannel(&htim3, &sConfig_entrance, TIM_CHANNEL_1);
 	HAL_TIM_PWM_Init(&htim3);
 	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
 }
 
-void lock_entrace() {
+void lock_entrance() {
 	HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
-	sConfig_entrace.Pulse = 12 - 1; //TH = 8ms, TL = 2ms
-	HAL_TIM_PWM_ConfigChannel(&htim3, &sConfig_entrace, TIM_CHANNEL_1);
+	sConfig_entrance.Pulse = 12 - 1; //TH = 8ms, TL = 2ms
+	HAL_TIM_PWM_ConfigChannel(&htim3, &sConfig_entrance, TIM_CHANNEL_1);
 	HAL_TIM_PWM_Init(&htim3);
 	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
 }
@@ -213,9 +218,17 @@ int main(void)
 
 	char nl = '\n';
 
-	uint8_t entrace_cnt, exit_cnt;
+	uint8_t entrance_cnt, exit_cnt;
 
 	float temp;
+
+	int it;
+
+	uint8_t pass_entrance[4] = {'1', '2', '3', '4'};
+	uint8_t pass_exit[4] = {'6', '7', '8', '9'};
+	uint8_t pass[4] = {'L', 'U', 'L', 'X'};
+
+	uint8_t pass2[4] = {'M', 'I', 'T', 'U'};
 
   /* USER CODE END 1 */
 
@@ -240,7 +253,10 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM1_Init();
   MX_TIM3_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
+
+  HAL_I2C_Init(&hi2c2);
 
   HAL_TIM_Base_Init(&htim3);
   HAL_TIM_PWM_Init(&htim3);
@@ -253,12 +269,12 @@ int main(void)
   i2c_init();
   sht_init();
 
-  sConfig_entrace.OCMode = TIM_OCMODE_PWM1;
-  sConfig_entrace.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfig_entrace.OCNPolarity = TIM_OCNPOLARITY_LOW;
-  sConfig_entrace.OCFastMode = TIM_OCFAST_DISABLE;
-  sConfig_entrace.OCIdleState = TIM_OCIDLESTATE_RESET;
-  sConfig_entrace.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  sConfig_entrance.OCMode = TIM_OCMODE_PWM1;
+  sConfig_entrance.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfig_entrance.OCNPolarity = TIM_OCNPOLARITY_LOW;
+  sConfig_entrance.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfig_entrance.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfig_entrance.OCNIdleState = TIM_OCNIDLESTATE_RESET;
 
   sConfig_exit.OCMode = TIM_OCMODE_PWM1;
   sConfig_exit.OCPolarity = TIM_OCPOLARITY_HIGH;
@@ -271,12 +287,98 @@ int main(void)
   HAL_TIM_PWM_ConfigChannel(&htim3, &sConfig_exit, TIM_CHANNEL_2);
   HAL_TIM_PWM_Init(&htim3);
 
+  HAL_I2C_Mem_Write(&hi2c2, 0xa0, 100, 1, (uint8_t *) &pass, 4, 10);
+   HAL_Delay(500);
+
+   for (it = 0; it < 4; it++) {
+   	pass[it] = '0';
+   }
+
+   HAL_Delay(100);
+   HAL_I2C_Mem_Read(&hi2c2, 0xa0, 100, 1, (uint8_t *) &pass, 4, 10);
+
+   printf("\r\n");
+   for (it = 0; it < 4; it++) {
+   	printf("%c\n", pass[it]);
+   }
+
+   nl = '\n';
+   transmit_ch(&nl);
+
+   // -----------------
+
+   for (it = 0; it < 4; it++) {
+ 	  i2c_wrmem(0xa0, 100+it, 1, pass2[it]);
+ 	  HAL_Delay(20);
+ 	  pass2[it] = '0';
+   }
+
+   nl = '\r';
+   HAL_UART_Transmit(&huart2, (uint8_t *) &nl, 1, 2);
+
+   for (it = 0; it < 4; it++) {
+ 	  pass2[it] = i2c_rdmem(0xa0, 100+it, 1);
+ //	  HAL_UART_Transmit(&huart2, (uint8_t *) &pass[it], 1, 2);
+ 	  printf("%c\n", i2c_rdmem(0xa0, 100+it, 1));
+
+ //	  nl = 'A' + it;
+ //	  HAL_UART_Transmit(&huart2, (uint8_t *) &nl, 1, 2);
+   }
+
+   nl = '\n';
+   HAL_UART_Transmit(&huart2, (uint8_t *) &nl, 1, 2);
+   nl = '\r';
+   HAL_UART_Transmit(&huart2, (uint8_t *) &nl, 1, 2);
+
+   return 0;
 
 
-  lock_entrace();
+
+  // entrance test - hardware i2c
+  HAL_I2C_Master_Transmit(&hi2c2, 0xa0, (uint8_t *) &pass_entrance, 4, 10);
+//   &hi2c1, 0xa0, 100, 1, (uint8_t *) &pass, 4, 10)
+  HAL_I2C_Mem_Write(&hi2c2, 0xa0, 100, 1, (uint8_t *) &pass_entrance, 4, 10);
+  for (it = 0; it < 4; it++) {
+	  pass_entrance[it] = '0';
+  }
+  HAL_Delay(100);
+  HAL_I2C_Mem_Read(&hi2c2, 0xa0, 100, 1, (uint8_t *) &pass_entrance, 4, 10);
+
+  printf("\r\n");
+  for (it = 0; it < 4; it++) {
+	  printf("%c\n", pass_entrance[it]);
+  }
+
+  nl = '\n';
+  transmit_ch(&nl);
+  nl = '\n';
+  transmit_ch(&nl);
+
+  return 0;
+
+  // exit test - emulated i2c
+  for (it = 0; it < 4; it++) {
+	  i2c_wrmem(0xa0, 100+it, 1, pass_exit[it]);
+  	  HAL_Delay(20);
+  	  pass_exit[it] = '0';
+  }
+
+  for (it = 0; it < 4; it++) {
+  	  pass_exit[it] = i2c_rdmem(0xa0, 100+it, 1);
+//  	  HAL_UART_Transmit(&huart2, (uint8_t *) &nl, 1, 2);
+  }
+
+  printf("\r\n");
+  for (it = 0; it < 4; it++) {
+	  printf("%c\n", pass_exit[it]);
+  }
+
+  return 0;
+
+  lock_entrance();
   lock_exit();
 
-  entrace_cnt = 50;
+  entrance_cnt = 50;
   exit_cnt = 50;
 
   printf("\rInicia\n");
@@ -284,12 +386,56 @@ int main(void)
 
   temp = 3.14f;
 
+  while(ENTRANCE_CARD_IN != 0);
+
+  for (it = 0; it < 4; it++) {
+	  i2c_wrmem(0xa0, 100+it, 1, pass[it]);
+	  HAL_Delay(20);
+	  pass[it] = '0';
+  }
+
+  for (it = 0; it < 4; it++) {
+	  pass[it] = i2c_rdmem(0xa0, 100+it, 1);
+//	  HAL_UART_Transmit(&huart2, (uint8_t *) &pass[it], 1, 2);
+
+	  nl = 'A' + it;
+	  HAL_UART_Transmit(&huart2, (uint8_t *) &nl, 1, 2);
+  }
+
+  nl = '\n';
+  HAL_UART_Transmit(&huart2, (uint8_t *) &nl, 1,2 );
+
+  while(ENTRANCE_CARD_IN == 0);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+//	  sda_0;
+//	  HAL_Delay(2500);
+//	  sda_1;
+//	  HAL_Delay(2500);
+//	  continue;
+
+//	  scl_0;
+//	  HAL_Delay(2500);
+//	  scl_1;
+//	  HAL_Delay(2500);
+//	  continue;
+
+	  while (ENTRANCE_CARD_IN != 0);
+
+	  for (it = 0; it < 4; it++) {
+		  pass[it] = i2c_rdmem(0xa0, 100+it, 1);
+		  transmit_ch((char *) &pass[it]);
+	  }
+	  nl = '\n';
+	  transmit_ch(nl);
+
+	  continue;
+
 	  temp = sht_rdTemp();
 	  sht_reSynch();
 	  printf("\r%3.2f\n", temp);
@@ -300,22 +446,22 @@ int main(void)
 
 	  continue;
 
-	  if (ctrl_entrace) {
-	      if (entrace_cnt == 50) {
-	          unlock_entrace();
+	  if (ctrl_entrance) {
+	      if (entrance_cnt == 50) {
+	          unlock_entrance();
 	      }
 
-	      if (entrace_cnt > 0) {
-	          entrace_cnt--;
+	      if (entrance_cnt > 0) {
+	          entrance_cnt--;
 	      }
 
-	      if (entrace_cnt == 0) {
-	          lock_entrace();
-	          ctrl_entrace = 0;
+	      if (entrance_cnt == 0) {
+	          lock_entrance();
+	          ctrl_entrance = 0;
 	      }
 
 	  } else {
-	      entrace_cnt = 50;
+	      entrance_cnt = 50;
 	  }
 
 	  if (ctrl_exit) {
@@ -336,13 +482,13 @@ int main(void)
 		  exit_cnt = 50;
 	  }
 
-	  transmit_int(entrace_cnt);
+	  transmit_int(entrance_cnt);
 	  nl = '\r';
 	  transmit_ch(&nl);
 	  nl = '\n';
 	  transmit_ch(&nl);
 
-	  transmit_int(ctrl_entrace);
+	  transmit_int(ctrl_entrance);
 	  nl = '\r';
 	  transmit_ch(&nl);
 	  nl = '\n';
@@ -456,6 +602,54 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief I2C2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C2_Init(void)
+{
+
+  /* USER CODE BEGIN I2C2_Init 0 */
+
+  /* USER CODE END I2C2_Init 0 */
+
+  /* USER CODE BEGIN I2C2_Init 1 */
+
+  /* USER CODE END I2C2_Init 1 */
+  hi2c2.Instance = I2C2;
+  hi2c2.Init.Timing = 0x00303D5B;
+  hi2c2.Init.OwnAddress1 = 0;
+  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c2.Init.OwnAddress2 = 0;
+  hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C2_Init 2 */
+
+  /* USER CODE END I2C2_Init 2 */
+
 }
 
 /**
@@ -641,17 +835,17 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOD, GPIO_PIN_0|GPIO_PIN_3, GPIO_PIN_RESET);
 
+  /*Configure GPIO pins : PC11 PC2 PC3 */
+  GPIO_InitStruct.Pin = GPIO_PIN_11|GPIO_PIN_2|GPIO_PIN_3;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
   /*Configure GPIO pins : PC12 PC6 PC10 */
   GPIO_InitStruct.Pin = GPIO_PIN_12|GPIO_PIN_6|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PC2 PC3 */
-  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PA1 PA11 */
@@ -667,8 +861,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB1 PB11 PB12 */
-  GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_11|GPIO_PIN_12;
+  /*Configure GPIO pins : PB1 PB12 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_12;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -1008,7 +1202,7 @@ void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_PIN) {
 	}
 
 	if(GPIO_PIN == GPIO_PIN_3) {
-		ctrl_entrace = 1;
+		ctrl_entrance = 1;
 	}
 }
 
